@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pneumonia Detection</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 50px;
+        }
+        .upload-box {
+            width: 80%;
+            max-width: 400px;
+            border: 2px dashed #ccc;
+            padding: 20px;
+            margin: auto;
+            cursor: pointer;
+            background-color: #fafafa;
+        }
+        .upload-box.dragover {
+            border-color: #333;
+        }
+        #file-input {
+            display: none;
+        }
+        .result {
+            margin-top: 20px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Pneumonia Detection from X-ray</h2>
+
+    <div id="upload-box" class="upload-box" contenteditable="true">
+        <p>📤 Drag & Drop an image here</p>
+        <p>📸 Or Paste a Screenshot (Ctrl+V / Cmd+V)</p>
+        <p>🔍 Or</p>
+        <button onclick="document.getElementById('file-input').click()">Choose File</button>
+        <input type="file" id="file-input" accept="image/*">
+    </div>
+
+    <div id="result" class="result"></div>
+
+    <script>
+        const uploadBox = document.getElementById("upload-box");
+        const fileInput = document.getElementById("file-input");
+        const resultDiv = document.getElementById("result");
+
+        // Handle file selection
+        fileInput.addEventListener("change", function(event) {
+            uploadFile(event.target.files[0]);
+        });
+
+        // Drag & Drop Events
+        uploadBox.addEventListener("dragover", (event) => {
+            event.preventDefault();
+            uploadBox.classList.add("dragover");
+        });
+
+        uploadBox.addEventListener("dragleave", () => {
+            uploadBox.classList.remove("dragover");
+        });
+
+        uploadBox.addEventListener("drop", async (event) => {
+            event.preventDefault();
+            uploadBox.classList.remove("dragover");
+
+            // Check if dragging from Google Images (URL instead of file)
+            if (event.dataTransfer.items) {
+                let item = event.dataTransfer.items[0];
+                if (item.kind === "string") {
+                    item.getAsString(async (url) => {
+                        if (url.startsWith("http")) {
+                            console.log("Detected image URL:", url);
+                            await fetchAndUploadImage(url);
+                        }
+                    });
+                    return;
+                }
+            }
+
+            // Handle normal file upload
+            let file = event.dataTransfer.files[0];
+            if (file) {
+                uploadFile(file);
+            }
+        });
+
+        // Paste Screenshot Handling
+        document.addEventListener("paste", (event) => {
+            const items = event.clipboardData.items;
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf("image") !== -1) {
+                    const blob = items[i].getAsFile();
+                    const file = new File([blob], "pasted_screenshot.png", { type: blob.type });
+                    uploadFile(file);
+                }
+            }
+        });
+
+        async function fetchAndUploadImage(imageUrl) {
+            try {
+                // Prevent issues with Google image proxy URLs
+                if (imageUrl.includes("googleusercontent.com") || imageUrl.includes("encrypted-tbn0.gstatic.com")) {
+                    resultDiv.innerHTML = `<span style="color: red;">❌ Direct drag-and-drop from Google Images is not supported. Right-click the image, open it in a new tab, then drag it from there.</span>`;
+                    return;
+                }
+
+                const response = await fetch(imageUrl);
+
+                if (!response.ok) {
+                    throw new Error("Failed to fetch image");
+                }
+
+                const blob = await response.blob();
+                const file = new File([blob], "downloaded_image.jpg", { type: blob.type });
+                uploadFile(file);
+            } catch (error) {
+                console.error("Error fetching image:", error);
+                resultDiv.innerHTML = `<span style="color: red;">❌ Failed to load image from URL. Try right-clicking, opening the image in a new tab, and dragging it from there.</span>`;
+            }
+        }
+
+        function uploadFile(file) {
+            if (!file) return;
+
+            let formData = new FormData();
+            formData.append("file", file);
+
+            resultDiv.innerHTML = "⏳ Processing...";
+
+            fetch("/upload", {
+                method: "POST",
+                body: formData,
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    resultDiv.innerHTML = `<span style="color: red;">❌ ${data.error}</span>`;
+                } else {
+                    let color = data.prediction === "Pneumonia" ? "red" : "green";
+                    resultDiv.innerHTML = `<span style="color: ${color}; font-weight: bold;">
+                        ✅ ${data.prediction} detected with ${data.confidence}% confidence.
+                    </span>`;
+                }
+            })
+            .catch(error => {
+                resultDiv.innerHTML = `<span style="color: red;">❌ Error processing the file.</span>`;
+            });
+        }
+    </script>
+
+</body>
+</html>
